@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "openapi-to-mcp serve --api-url https://trainai-tools.onrender.com --port $PORT"
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
@@ -12,6 +12,9 @@
   "description": "",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.21.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
     "openapi-to-mcp": "^0.1.5"
-  }
+  },
+  "type": "module"
 }
