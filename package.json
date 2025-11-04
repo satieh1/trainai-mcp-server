@@ -1,0 +1,17 @@
+{
+  "name": "trainai-mcp-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "openapi-to-mcp serve --schema-url https://trainai-tools.onrender.com/openapi.json --port $PORT"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.21.0",
+    "openapi-to-mcp": "^0.1.5"
+  }
+}
