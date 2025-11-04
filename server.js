@@ -2,7 +2,7 @@
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
-import { McpServer } from '@modelcontextprotocol/sdk/server/index.js';
+import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 
 const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
