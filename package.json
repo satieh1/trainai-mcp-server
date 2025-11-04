@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "openapi-to-mcp serve --schema-url https://trainai-tools.onrender.com/openapi.json --port $PORT"
+    "start": "openapi-to-mcp serve --api-url https://trainai-tools.onrender.com --port $PORT"
   },
   "keywords": [],
   "author": "",
