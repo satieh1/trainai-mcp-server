@@ -14,10 +14,6 @@ import { z } from "zod";
 const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
 const PORT = process.env.PORT || 3000;
 
-const app = express();
-app.use(cors());
-app.use(express.json());
-
 // Helpers
 async function getJSON(url) {
   const r = await fetch(url, { headers: { accept: 'application/json' } });
