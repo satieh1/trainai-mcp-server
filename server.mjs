@@ -106,7 +106,7 @@ app.get('/.well-known/mcp.json', (_req, res) => {
     schema: "1.0",
     name: "TrainaiMCP",
     version: "0.1.0",
-    transport: { type: "sse", url: "/sse" }
+    transport: { type: "sse", url: "/mcp" }
   });
 });
 
