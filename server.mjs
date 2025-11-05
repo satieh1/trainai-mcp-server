@@ -1,6 +1,4 @@
 // server.mjs
-import express from "express";
-import cors from "cors";
 import fetch from "node-fetch";
 
 // ✅ High-level MCP server with .tool()
@@ -11,8 +9,22 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 
 import { z } from "zod";
 
+// ---- Express app bootstrapping (must be before any app.* usage)
+import express from 'express';
+import cors from 'cors';
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Health check BEFORE anything else uses `app`
+app.get('/', (_req, res) => res.send('trainai-mcp-server up'));
+
+// Pick a single port variable name and use it everywhere
+const port = process.env.PORT || 3000;
+
+
 const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
-const PORT = process.env.PORT || 3000;
 
 // Helpers
 async function getJSON(url) {
@@ -88,18 +100,12 @@ server.tool('list_flows',
   async () => ({ content: [{ type: 'json', json: await getJSON(`${API_BASE}/flows`) }] })
 );
 
-// Health
-app.get('/', (_req, res) => res.send('trainai-mcp-server up'));
 
 // Start
 app.listen(PORT, () => {
   console.log(`MCP HTTP server listening on :${PORT} (API_BASE=${API_BASE})`);
 });
 
-const app = express();
-app.use(cors());
-
-const port = process.env.PORT || 3000;
 const transport = new StreamableHTTPServerTransport({
   path: "/sse",       // MCP endpoint
   heartbeatIntervalMs: 25000,
@@ -107,6 +113,5 @@ const transport = new StreamableHTTPServerTransport({
 
 await transport.start(app, server);
 
-app.get("/", (_req, res) => res.send("Train.ai MCP server is running"));
 app.listen(port, () => console.log(`MCP SSE on :${port}/sse`));
 
