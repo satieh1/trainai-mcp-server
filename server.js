@@ -39,7 +39,7 @@ async function postJSON(url, body) {
 }
 
 // ---- Tools exposed to Agent Builder ----
-mcp.tool('crawl', {
+mcp.addTool('crawl', {
   description: 'Crawl app DOM to discover routes, selectors, snippets.',
   inputSchema: {
     type: 'object',
@@ -58,7 +58,7 @@ mcp.tool('crawl', {
   }
 });
 
-mcp.tool('doc_search', {
+mcp.addTool('doc_search', {
   description: 'Search documentation chunks',
   inputSchema: {
     type: 'object',
@@ -73,7 +73,7 @@ mcp.tool('doc_search', {
   }
 });
 
-mcp.tool('evaluate', {
+mcp.addTool('evaluate', {
   description: 'Validate a selector/route pair',
   inputSchema: {
     type: 'object',
@@ -92,7 +92,7 @@ mcp.tool('evaluate', {
   }
 });
 
-mcp.tool('persist_flow', {
+mcp.addTool('persist_flow', {
   description: 'Persist a discovered Train.ai flow',
   inputSchema: { type: 'object', additionalProperties: true },
   handler: async (flowObj) => {
@@ -101,7 +101,7 @@ mcp.tool('persist_flow', {
   }
 });
 
-mcp.tool('get_flow', {
+mcp.addTool('get_flow', {
   description: 'Fetch a flow by id',
   inputSchema: {
     type: 'object',
@@ -114,7 +114,7 @@ mcp.tool('get_flow', {
   }
 });
 
-mcp.tool('list_flows', {
+mcp.addTool('list_flows', {
   description: 'List flows',
   inputSchema: {
     type: 'object',
