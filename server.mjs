@@ -102,8 +102,8 @@ server.tool('list_flows',
 
 
 // Start
-app.listen(PORT, () => {
-  console.log(`MCP HTTP server listening on :${PORT} (API_BASE=${API_BASE})`);
+app.listen(port, () => {
+  console.log(`MCP HTTP server listening on :${port} (API_BASE=${API_BASE})`);
 });
 
 const transport = new StreamableHTTPServerTransport({
