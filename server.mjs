@@ -100,6 +100,15 @@ server.tool('list_flows',
   async () => ({ content: [{ type: 'json', json: await getJSON(`${API_BASE}/flows`) }] })
 );
 
+// MCP discovery for Agent Builder
+app.get('/.well-known/mcp.json', (_req, res) => {
+  res.json({
+    schema: "1.0",
+    name: "TrainaiMCP",
+    version: "0.1.0",
+    transport: { type: "sse", url: "/sse" }
+  });
+});
 
 // Start
 app.listen(port, () => {
