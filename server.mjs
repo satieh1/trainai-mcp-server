@@ -88,10 +88,6 @@ server.tool('list_flows',
   async () => ({ content: [{ type: 'json', json: await getJSON(`${API_BASE}/flows`) }] })
 );
 
-// Expose MCP over SSE
-const transport = new SSEServerTransport('/mcp');
-transport.attach(server, app);
-
 // Health
 app.get('/', (_req, res) => res.send('trainai-mcp-server up'));
 
