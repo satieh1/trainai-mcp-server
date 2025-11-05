@@ -1,7 +1,15 @@
-import express from 'express';
-import cors from 'cors';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+// server.mjs
+import express from "express";
+import cors from "cors";
+import fetch from "node-fetch";
+
+// ✅ High-level MCP server with .tool()
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+
+// ✅ HTTP(S) transport for MCP
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+
+import { z } from "zod";
 
 const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
 const PORT = process.env.PORT || 3000;
@@ -27,20 +35,23 @@ async function postJSON(url, body) {
 }
 
 // MCP server
-const server = new Server({ name: 'trainai-tools', version: '1.0.0' });
+const server = new McpServer({ name: 'trainai-tools', version: '1.0.0' });
 
-server.tool('crawl',
-  {
-    description: 'Crawl app DOM to discover routes, selectors, and snippets.',
-    inputSchema: {
-      type: 'object',
-      properties: { url: { type: 'string' }, depth: { type: 'integer', default: 1 } },
-      required: ['url']
-    }
-  },
-  async ({ url, depth = 1 }) => {
-    const u = new URL(`${API_BASE}/crawl`); u.searchParams.set('url', url); u.searchParams.set('depth', String(depth));
-    return { content: [{ type: 'json', json: await postJSON(u.toString(), {}) }] };
+server.tool(
+  "ping",
+  { message: z.string().default("pong") },
+  async ({ message }) => ({
+    content: [{ type: "text", text: `pong: ${message}` }],
+  })
+);
+
+server.tool(
+  "crawl",
+  { url: z.string().url(), depth: z.number().int().min(0).max(3).default(1) },
+  async ({ url, depth }) => {
+    const r = await fetch(`${API_BASE}/crawl?url=${encodeURIComponent(url)}&depth=${depth}`, { method: "POST" });
+    const data = await r.json();
+    return { content: [{ type: "json", json: data }] };
   }
 );
 
@@ -92,3 +103,18 @@ app.get('/', (_req, res) => res.send('trainai-mcp-server up'));
 app.listen(PORT, () => {
   console.log(`MCP HTTP server listening on :${PORT} (API_BASE=${API_BASE})`);
 });
+
+const app = express();
+app.use(cors());
+
+const port = process.env.PORT || 3000;
+const transport = new StreamableHTTPServerTransport({
+  path: "/sse",       // MCP endpoint
+  heartbeatIntervalMs: 25000,
+});
+
+await transport.start(app, server);
+
+app.get("/", (_req, res) => res.send("Train.ai MCP server is running"));
+app.listen(port, () => console.log(`MCP SSE on :${port}/sse`));
+
