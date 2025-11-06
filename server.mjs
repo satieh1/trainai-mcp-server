@@ -1,25 +1,36 @@
-// server.mjs
+// server.mjs — Minimal MCP SSE bridge for Train.ai FastAPI
 
-// ---- Express app bootstrapping (must be before any app.* usage)
 import express from 'express';
 import cors from 'cors';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/transports/sse/server.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/index.js';
+import { z } from 'zod';
 
+// ------------ Express setup ------------
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Health check BEFORE anything else uses `app`
+// Health
 app.get('/', (_req, res) => res.send('trainai-mcp-server up'));
 
-// ⬅️ DELETE any StreamableHTTPServerTransport code and any /sse path
-const transport = new SSEServerTransport('/mcp');
+// Discovery: advertise SSE on /mcp
+app.get('/.well-known/mcp.json', (_req, res) => {
+  res.json({
+    schema: '1.0',
+    name: 'TrainaiMCP',
+    version: '0.1.0',
+    transport: { type: 'sse', url: '/mcp' }
+  });
+});
 
-// Mount the handler (this replaces any old app.use/app.get for /sse)
+// Single SSE transport at /mcp
+const transport = new SSEServerTransport('/mcp');
 app.get('/mcp', (req, res) => transport.handleRequest(req, res));
 
+// ------------ Train.ai API helpers ------------
 const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
 
-// Helpers
 async function getJSON(url) {
   const r = await fetch(url, { headers: { accept: 'application/json' } });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -35,78 +46,60 @@ async function postJSON(url, body) {
   return r.json();
 }
 
-// MCP server
+// ------------ MCP server + tools ------------
 const server = new McpServer({ name: 'trainai-tools', version: '1.0.0' });
 
+// ping
 server.tool(
-  "ping",
-  { message: z.string().default("pong") },
-  async ({ message }) => ({
-    content: [{ type: "text", text: `pong: ${message}` }],
-  })
+  'ping',
+  { message: z.string().default('pong') },
+  async ({ message }) => ({ ok: true, message })
 );
 
+// crawl -> POST /crawl?url=&depth=
 server.tool(
-  "crawl",
-  { url: z.string().url(), depth: z.number().int().min(0).max(3).default(1) },
-  async ({ url, depth }) => {
-    const r = await fetch(`${API_BASE}/crawl?url=${encodeURIComponent(url)}&depth=${depth}`, { method: "POST" });
-    const data = await r.json();
-    return { content: [{ type: "json", json: data }] };
-  }
-);
-
-server.tool('doc_search',
+  'crawl',
   {
-    description: 'Search documentation chunks for a query.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
+    url: z.string().url(),
+    depth: z.number().int().min(0).max(3).default(1)
   },
-  async ({ query }) => {
-    const u = new URL(`${API_BASE}/doc_search`); u.searchParams.set('query', query);
-    return { content: [{ type: 'json', json: await getJSON(u.toString()) }] };
-  }
+  async ({ url, depth }) => postJSON(`${API_BASE}/crawl?url=${encodeURIComponent(url)}&depth=${depth}`)
 );
 
-server.tool('evaluate',
+// doc_search -> GET /doc_search?query=
+server.tool(
+  'doc_search',
+  { query: z.string().min(1) },
+  async ({ query }) => getJSON(`${API_BASE}/doc_search?query=${encodeURIComponent(query)}`)
+);
+
+// evaluate -> GET /evaluate?selector=&route=
+server.tool(
+  'evaluate',
   {
-    description: 'Validate a selector against a route.',
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, route: { type: 'string' } }, required: ['selector','route'] }
+    selector: z.string().min(1),
+    route: z.string().min(1)
   },
-  async ({ selector, route }) => {
-    const u = new URL(`${API_BASE}/evaluate`); u.searchParams.set('selector', selector); u.searchParams.set('route', route);
-    return { content: [{ type: 'json', json: await getJSON(u.toString()) }] };
-  }
+  async ({ selector, route }) =>
+    getJSON(`${API_BASE}/evaluate?selector=${encodeURIComponent(selector)}&route=${encodeURIComponent(route)}`)
 );
 
-server.tool('persist_flow',
-  { description: 'Persist a discovered Train.ai flow.', inputSchema: { type: 'object', additionalProperties: true } },
-  async (flowObj) => ({ content: [{ type: 'json', json: await postJSON(`${API_BASE}/persist_flow`, flowObj) }] })
+// persist_flow -> POST /persist_flow (JSON body)
+server.tool(
+  'persist_flow',
+  {
+    flow: z.record(z.any()) // accept arbitrary JSON
+  },
+  async ({ flow }) => postJSON(`${API_BASE}/persist_flow`, flow)
 );
 
-server.tool('get_flow',
-  { description: 'Fetch a flow by id.', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  async ({ id }) => ({ content: [{ type: 'json', json: await getJSON(`${API_BASE}/flows/${id}`) }] })
-);
+// ------------ Bind MCP to SSE transport ------------
+transport.register(server);
 
-server.tool('list_flows',
-  { description: 'List flows.', inputSchema: { type: 'object', properties: {} } },
-  async () => ({ content: [{ type: 'json', json: await getJSON(`${API_BASE}/flows`) }] })
-);
-
-// MCP discovery for Agent Builder
-app.get('/.well-known/mcp.json', (_req, res) => {
-  res.json({
-    schema: '1.0',
-    name: 'TrainaiMCP',
-    version: '0.1.0',
-    transport: { type: 'sse', url: '/mcp' }
-  });
-});
-
-// Start
+// ------------ Start HTTP ------------
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`MCP SSE on :${PORT}/mcp`);
-  console.log(`MCP HTTP server listening on :${PORT}`);
+  console.log(`MCP HTTP server listening on :${PORT} (API_BASE=${API_BASE})`);
 });
 
