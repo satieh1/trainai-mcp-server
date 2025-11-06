@@ -1,13 +1,4 @@
 // server.mjs
-import fetch from "node-fetch";
-
-// ✅ High-level MCP server with .tool()
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
-// ✅ HTTP(S) transport for MCP
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-
-import { z } from "zod";
 
 // ---- Express app bootstrapping (must be before any app.* usage)
 import express from 'express';
@@ -20,9 +11,11 @@ app.use(express.json());
 // Health check BEFORE anything else uses `app`
 app.get('/', (_req, res) => res.send('trainai-mcp-server up'));
 
-// Pick a single port variable name and use it everywhere
-const port = process.env.PORT || 3000;
+// ⬅️ DELETE any StreamableHTTPServerTransport code and any /sse path
+const transport = new SSEServerTransport('/mcp');
 
+// Mount the handler (this replaces any old app.use/app.get for /sse)
+app.get('/mcp', (req, res) => transport.handleRequest(req, res));
 
 const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
 
@@ -103,24 +96,17 @@ server.tool('list_flows',
 // MCP discovery for Agent Builder
 app.get('/.well-known/mcp.json', (_req, res) => {
   res.json({
-    schema: "1.0",
-    name: "TrainaiMCP",
-    version: "0.1.0",
-    transport: { type: "sse", url: "/mcp" }
+    schema: '1.0',
+    name: 'TrainaiMCP',
+    version: '0.1.0',
+    transport: { type: 'sse', url: '/mcp' }
   });
 });
 
 // Start
-app.listen(port, () => {
-  console.log(`MCP HTTP server listening on :${port} (API_BASE=${API_BASE})`);
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`MCP SSE on :${PORT}/mcp`);
+  console.log(`MCP HTTP server listening on :${PORT}`);
 });
-
-const transport = new StreamableHTTPServerTransport({
-  path: "/sse",       // MCP endpoint
-  heartbeatIntervalMs: 25000,
-});
-
-await transport.start(app, server);
-
-app.listen(port, () => console.log(`MCP SSE on :${port}/sse`));
 
