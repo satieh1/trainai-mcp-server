@@ -4,7 +4,8 @@ import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import openapiToMcp from 'openapi-to-mcp';
+
+const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
 
 // ------------ Express setup ------------
 const app = express();
@@ -13,6 +14,16 @@ app.use(express.json());
 
 // Health
 app.get('/', (_req, res) => res.send('trainai-mcp-server up'));
+
+// MCP server
+const server = new McpServer({ name: 'TrainaiMCP', version: '0.1.0' }); 
+
+// Example tool (keep or remove)
+server.tool('ping', {
+  description: 'Health check',
+  inputSchema: { type: 'object', properties: { msg: { type: 'string' } } },
+  handler: async ({ msg = 'ok' }) => ({ content: [{ type: 'text', text: `pong: ${msg}` }] })
+});
 
 // Discovery: advertise SSE on /mcp
 app.get('/.well-known/mcp.json', (_req, res) => {
@@ -24,12 +35,13 @@ app.get('/.well-known/mcp.json', (_req, res) => {
   });
 });
 
-// Single SSE transport at /mcp
+// SSE transport at /mcp (must match your .well-known/mcp.json)
 const transport = new SSEServerTransport('/mcp');
-app.get('/mcp', (req, res) => transport.handleRequest(req, res));
+await transport.start(app, server);
 
-// ------------ Train.ai API helpers ------------
-const API_BASE = process.env.TRAINAI_API_BASE || 'https://trainai-tools.onrender.com';
+// SSE transport at /mcp (must match your .well-known/mcp.json)
+const transport = new SSEServerTransport('/mcp');
+await transport.start(app, server);
 
 async function getJSON(url) {
   const r = await fetch(url, { headers: { accept: 'application/json' } });
@@ -95,11 +107,4 @@ server.tool(
 
 // ------------ Bind MCP to SSE transport ------------
 transport.register(app, server);
-
-// ------------ Start HTTP ------------
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`MCP SSE on :${PORT}/mcp`);
-  console.log(`MCP HTTP server listening on :${PORT} (API_BASE=${API_BASE})`);
-});
 
