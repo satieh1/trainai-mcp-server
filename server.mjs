@@ -2,8 +2,8 @@
 
 import express from 'express';
 import cors from 'cors';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/index.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import openapiToMcp from 'openapi-to-mcp';
 
 // ------------ Express setup ------------
