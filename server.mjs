@@ -94,7 +94,7 @@ server.tool(
 );
 
 // ------------ Bind MCP to SSE transport ------------
-transport.register(server);
+transport.register(app, server);
 
 // ------------ Start HTTP ------------
 const PORT = process.env.PORT || 10000;
