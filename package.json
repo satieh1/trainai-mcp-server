@@ -2,16 +2,15 @@
   "name": "trainai-mcp-server",
   "version": "1.0.0",
   "type": "module",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.21.0",
-    "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "zod": "^3.23.8"
-  },
+  "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs"
   },
-  "engines": {
-    "node": ">=20 <23"
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.3.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "zod": "^3.23.8"
   }
 }
+
