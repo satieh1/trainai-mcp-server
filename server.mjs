@@ -197,6 +197,7 @@ function buildServer() {
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use("/.well-known", express.static(".well-known"));
 
 // Simple health check
 app.get("/", (_req, res) => {

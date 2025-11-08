@@ -1,0 +1,10 @@
+{
+  "schema": "1.0",
+  "name": "TrainaiMCP",
+  "version": "0.1.0",
+  "transport": {
+    "type": "http",
+    "url": "https://trainai-mcp-server.onrender.com/mcp"
+  }
+}
+
