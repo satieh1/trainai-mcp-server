@@ -1,269 +1,294 @@
 // server.mjs
-// Minimal MCP Streamable HTTP server exposing your Train.ai tools
+// Minimal MCP-over-HTTP bridge for Train.ai tools
+// No SDK magic, no openapi-to-mcp. Just a clean JSON-RPC server.
 
 import express from "express";
 import cors from "cors";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
 
+const PORT = parseInt(process.env.PORT || "3000", 10);
 const API_BASE =
   process.env.TRAINAI_API_BASE || "https://trainai-tools.onrender.com";
-
-/**
- * Build a fresh MCP server instance with Train.ai tools registered.
- * This is called per-request in stateless mode.
- */
-function buildServer() {
-  const server = new McpServer({
-    name: "trainai-mcp-server",
-    version: "0.1.0",
-  });
-
-  //
-  // 1) /crawl
-  //
-  server.registerTool(
-    "crawl",
-    {
-      title: "Crawl application DOM",
-      description:
-        "Call Train.ai /crawl to scan a web app and return routes, selectors, snippets.",
-      inputSchema: {
-        url: z.string().url(),
-        depth: z.number().int().min(0).max(3).optional(),
-      },
-    },
-    async ({ url, depth }) => {
-      const d = depth ?? 1;
-      const res = await fetch(
-        `${API_BASE}/crawl?url=${encodeURIComponent(url)}&depth=${d}`,
-        { method: "POST" }
-      );
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`crawl failed: ${res.status} ${text}`);
-      }
-      const data = await res.json();
-      return {
-        content: [{ type: "json", json: data }],
-      };
-    }
-  );
-
-  //
-  // 2) /doc_search
-  //
-  server.registerTool(
-    "doc_search",
-    {
-      title: "Search documentation",
-      description:
-        "Search indexed docs for guidance related to a workflow or selector.",
-      inputSchema: {
-        query: z.string(),
-      },
-    },
-    async ({ query }) => {
-      const res = await fetch(
-        `${API_BASE}/doc_search?query=${encodeURIComponent(query)}`
-      );
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`doc_search failed: ${res.status} ${text}`);
-      }
-      const data = await res.json();
-      return {
-        content: [{ type: "json", json: data }],
-      };
-    }
-  );
-
-  //
-  // 3) /evaluate
-  //
-  server.registerTool(
-    "evaluate",
-    {
-      title: "Evaluate selector/route",
-      description:
-        "Validate whether a selector works on a given route using Train.ai /evaluate.",
-      inputSchema: {
-        selector: z.string(),
-        route: z.string(),
-      },
-    },
-    async ({ selector, route }) => {
-      const url = `${API_BASE}/evaluate?selector=${encodeURIComponent(
-        selector
-      )}&route=${encodeURIComponent(route)}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`evaluate failed: ${res.status} ${text}`);
-      }
-      const data = await res.json();
-      return {
-        content: [{ type: "json", json: data }],
-      };
-    }
-  );
-
-  //
-  // 4) /persist_flow
-  //
-  server.registerTool(
-    "persist_flow",
-    {
-      title: "Persist discovered flow",
-      description:
-        "Store a structured workflow JSON using Train.ai /persist_flow.",
-      inputSchema: {
-        flow: z.record(z.any()),
-      },
-    },
-    async ({ flow }) => {
-      const res = await fetch(`${API_BASE}/persist_flow`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(flow),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`persist_flow failed: ${res.status} ${text}`);
-      }
-      const data = await res.json();
-      return {
-        content: [{ type: "json", json: data }],
-      };
-    }
-  );
-
-  //
-  // 5) List flows: GET /flows
-  //
-  server.registerTool(
-    "list_flows",
-    {
-      title: "List stored flows",
-      description:
-        "Fetch all stored Train.ai flows from the backend (GET /flows).",
-      inputSchema: {},
-    },
-    async () => {
-      const res = await fetch(`${API_BASE}/flows`);
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`list_flows failed: ${res.status} ${text}`);
-      }
-      const data = await res.json();
-      return {
-        content: [{ type: "json", json: data }],
-      };
-    }
-  );
-
-  //
-  // 6) Get flow by ID: GET /flows/{id}
-  //
-  server.registerTool(
-    "get_flow",
-    {
-      title: "Get flow by ID",
-      description:
-        "Fetch a single Train.ai flow (including steps) by its ID (GET /flows/{id}).",
-      inputSchema: {
-        id: z.string(),
-      },
-    },
-    async ({ id }) => {
-      const res = await fetch(`${API_BASE}/flows/${encodeURIComponent(id)}`);
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`get_flow failed: ${res.status} ${text}`);
-      }
-      const data = await res.json();
-      return {
-        content: [{ type: "json", json: data }],
-      };
-    }
-  );
-
-  return server;
-}
-
-// ---------- Express + Streamable HTTP wiring (stateless) ----------
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use("/.well-known", express.static(".well-known"));
 
 // Simple health check
 app.get("/", (_req, res) => {
   res.send("trainai-mcp-server up");
 });
 
-// Stateless MCP endpoint for OpenAI Agent Builder
-app.post("/mcp", async (req, res) => {
-  try {
-    const server = buildServer();
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined, // stateless
-    });
+// MCP metadata for OpenAI Agent Builder
+app.get("/.well-known/mcp.json", (_req, res) => {
+  res.json({
+    schema: "1.0",
+    name: "trainai-mcp",
+    version: "0.1.0",
+    transport: {
+      type: "http",
+      url: "/mcp"
+    }
+  });
+});
 
-    res.on("close", () => {
-      try {
-        transport.close();
-        server.close();
-      } catch {
-        /* ignore */
+// ---- Tool definitions ----
+
+const tools = {
+  crawl: {
+    name: "crawl",
+    description:
+      "Crawl a web app and extract routes, selectors, and snippets using Train.ai /crawl.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "Root URL of the app to crawl"
+        },
+        depth: {
+          type: "integer",
+          description: "Max depth for following links",
+          default: 1
+        }
+      },
+      required: ["url"]
+    },
+    handler: async (args) => {
+      const url = args.url;
+      const depth = args.depth ?? 1;
+
+      const resp = await fetch(
+        `${API_BASE}/crawl?url=${encodeURIComponent(url)}&depth=${depth}`,
+        { method: "POST" }
+      );
+
+      if (!resp.ok) {
+        return [
+          {
+            type: "text",
+            text: `crawl failed: HTTP ${resp.status}`
+          }
+        ];
+      }
+
+      const data = await resp.json();
+      return [
+        {
+          type: "json",
+          json: data
+        }
+      ];
+    }
+  },
+
+  doc_search: {
+    name: "doc_search",
+    description:
+      "Search indexed documentation via Train.ai /doc_search for a natural language query.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query"
+        }
+      },
+      required: ["query"]
+    },
+    handler: async (args) => {
+      const q = args.query;
+
+      const resp = await fetch(
+        `${API_BASE}/doc_search?query=${encodeURIComponent(q)}`
+      );
+
+      if (!resp.ok) {
+        return [
+          {
+            type: "text",
+            text: `doc_search failed: HTTP ${resp.status}`
+          }
+        ];
+      }
+
+      const data = await resp.json();
+      return [
+        {
+          type: "json",
+          json: data
+        }
+      ];
+    }
+  },
+
+  evaluate: {
+    name: "evaluate",
+    description:
+      "Validate a CSS selector on a given route using Train.ai /evaluate (mock today).",
+    input_schema: {
+      type: "object",
+      properties: {
+        selector: {
+          type: "string",
+          description: "CSS selector to validate"
+        },
+        route: {
+          type: "string",
+          description: "Route/URL to check against"
+        }
+      },
+      required: ["selector", "route"]
+    },
+    handler: async (args) => {
+      const qs = new URLSearchParams({
+        selector: args.selector,
+        route: args.route
+      }).toString();
+
+      const resp = await fetch(`${API_BASE}/evaluate?${qs}`);
+
+      if (!resp.ok) {
+        return [
+          {
+            type: "text",
+            text: `evaluate failed: HTTP ${resp.status}`
+          }
+        ];
+      }
+
+      const data = await resp.json();
+      return [
+        {
+          type: "json",
+          json: data
+        }
+      ];
+    }
+  },
+
+  persist_flow: {
+    name: "persist_flow",
+    description:
+      "Persist a discovered flow JSON via Train.ai /persist_flow so it can be inspected & replayed.",
+    input_schema: {
+      type: "object",
+      description:
+        "Full flow JSON (app, task, confidence, sources, steps, etc) as produced by Train.ai."
+    },
+    handler: async (args) => {
+      const resp = await fetch(`${API_BASE}/persist_flow`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args)
+      });
+
+      if (!resp.ok) {
+        return [
+          {
+            type: "text",
+            text: `persist_flow failed: HTTP ${resp.status}`
+          }
+        ];
+      }
+
+      const data = await resp.json();
+      return [
+        {
+          type: "json",
+          json: data
+        }
+      ];
+    }
+  }
+};
+
+// ---- MCP JSON-RPC endpoint ----
+
+app.post("/mcp", async (req, res) => {
+  const { jsonrpc, id, method, params } = req.body || {};
+
+  if (jsonrpc !== "2.0") {
+    return res.status(400).json({
+      jsonrpc: "2.0",
+      id: id ?? null,
+      error: {
+        code: -32600,
+        message: "Invalid JSON-RPC version (expected 2.0)"
       }
     });
+  }
 
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  } catch (err) {
-    console.error("Error handling MCP /mcp request:", err);
-    if (!res.headersSent) {
-      res.status(500).json({
+  // List tools
+  if (method === "tools/list") {
+    const list = Object.values(tools).map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema
+    }));
+
+    return res.json({
+      jsonrpc: "2.0",
+      id,
+      result: { tools: list }
+    });
+  }
+
+  // Call tool
+  if (method === "tools/call") {
+    const name = params?.name;
+    const args = params?.arguments || {};
+    const tool = tools[name];
+
+    if (!tool) {
+      return res.json({
         jsonrpc: "2.0",
+        id,
         error: {
-          code: -32603,
-          message: "Internal server error",
-        },
-        id: null,
+          code: -32601,
+          message: `Unknown tool: ${name}`
+        }
+      });
+    }
+
+    try {
+      const content = await tool.handler(args);
+      return res.json({
+        jsonrpc: "2.0",
+        id,
+        result: { content }
+      });
+    } catch (err) {
+      console.error("Tool error:", err);
+      return res.json({
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: -32000,
+          message: `Tool '${name}' failed: ${
+            err?.message || String(err)
+          }`
+        }
       });
     }
   }
+
+  // Unknown method
+  return res.json({
+    jsonrpc: "2.0",
+    id: id ?? null,
+    error: {
+      code: -32601,
+      message: `Unknown method: ${method}`
+    }
+  });
 });
 
-// Optional: reject GET/DELETE nicely (some clients may probe)
-app.get("/mcp", (req, res) => {
-  res
-    .status(405)
-    .json({
-      jsonrpc: "2.0",
-      error: { code: -32000, message: "Method not allowed" },
-      id: null,
-    });
-});
-
-app.delete("/mcp", (req, res) => {
-  res
-    .status(405)
-    .json({
-      jsonrpc: "2.0",
-      error: { code: -32000, message: "Method not allowed" },
-      id: null,
-    });
-});
-
-const PORT = process.env.PORT || 10000;
+// ---- Start server ----
 
 app.listen(PORT, () => {
+  console.log(`trainai-mcp-server listening on port ${PORT}`);
   console.log(
-    `MCP Stateless Streamable HTTP Server listening on port ${PORT} (POST /mcp)`
+    "MCP metadata: GET /.well-known/mcp.json ; JSON-RPC: POST /mcp"
   );
 });
 
