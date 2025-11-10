@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "transport": {
     "type": "streamable_http",
-    "url": "/mcp"
+    "url": "https://trainai-mcp-server.onrender.com/mcp"
   }
 }
