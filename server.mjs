@@ -1,202 +1,158 @@
-// server.mjs
-// Train.ai MCP server exposing crawl, doc_search, evaluate, persist_flow
-// Uses MCP TypeScript SDK (ESM) + Streamable HTTP transport.
-
 import express from "express";
-import { z } from "zod";
-import {
-  McpServer,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  StreamableHTTPServerTransport,
-} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-
-const API_BASE =
-  process.env.TRAINAI_API_BASE || "https://trainai-tools.onrender.com";
-
-// ---------- MCP SERVER SETUP ----------
-
-const server = new McpServer({
-  name: "TrainaiMCP",
-  version: "0.1.0",
-});
-
-// Helper to call Train.ai backend
-async function callApi(path, { method = "GET", query = {}, body } = {}) {
-  const url = new URL(path, API_BASE);
-  for (const [k, v] of Object.entries(query)) {
-    if (v !== undefined && v !== null) {
-      url.searchParams.set(k, String(v));
-    }
-  }
-
-  const res = await fetch(url.toString(), {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Train.ai API ${url.pathname} failed: ${res.status} ${text}`
-    );
-  }
-
-  const ct = res.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return res.json();
-  return res.text();
-}
-
-// ---------- TOOLS ----------
-
-// 1) crawl
-server.registerTool(
-  "crawl",
-  {
-    title: "Crawl application",
-    description:
-      "Crawl a target web application and return routes, selectors, and snippets.",
-    inputSchema: z.object({
-      url: z.string().url(),
-      depth: z.number().int().min(0).max(3).optional(),
-    }),
-  },
-  async ({ url, depth }) => {
-    const data = await callApi("/crawl", {
-      method: "POST",
-      query: { url, depth: depth ?? 1 },
-    });
-    const text = JSON.stringify(data, null, 2);
-    return {
-      content: [{ type: "text", text }],
-      structuredContent: data,
-    };
-  }
-);
-
-// 2) doc_search
-server.registerTool(
-  "doc_search",
-  {
-    title: "Search documentation",
-    description:
-      "Search Train.ai indexed docs/DOM for information relevant to a task.",
-    inputSchema: z.object({
-      query: z.string(),
-    }),
-  },
-  async ({ query }) => {
-    const data = await callApi("/doc_search", {
-      method: "GET",
-      query: { query },
-    });
-    const text = JSON.stringify(data, null, 2);
-    return {
-      content: [{ type: "text", text }],
-      structuredContent: data,
-    };
-  }
-);
-
-// 3) evaluate
-server.registerTool(
-  "evaluate",
-  {
-    title: "Evaluate selector/route",
-    description:
-      "Validate that a selector works for a given route in the learned flow.",
-    inputSchema: z.object({
-      selector: z.string(),
-      route: z.string(),
-    }),
-  },
-  async ({ selector, route }) => {
-    const data = await callApi("/evaluate", {
-      method: "GET",
-      query: { selector, route },
-    });
-    const text = JSON.stringify(data, null, 2);
-    return {
-      content: [{ type: "text", text }],
-      structuredContent: data,
-    };
-  }
-);
-
-// 4) persist_flow
-server.registerTool(
-  "persist_flow",
-  {
-    title: "Persist discovered flow",
-    description:
-      "Store a structured Train.ai flow JSON so it can be replayed or inspected.",
-    inputSchema: z.object({
-      flow: z.any(),
-    }),
-  },
-  async ({ flow }) => {
-    const data = await callApi("/persist_flow", {
-      method: "POST",
-      body: flow,
-    });
-    const text = JSON.stringify(data, null, 2);
-    return {
-      content: [{ type: "text", text }],
-      structuredContent: data,
-    };
-  }
-);
-
-// ---------- EXPRESS + MCP TRANSPORT ----------
+import cors from "cors";
 
 const app = express();
+
+// Use Render's PORT in production, 3000 locally
+const PORT = process.env.PORT || 3000;
+
+// Your Train.ai tools API base
+const TRAINAI_API_BASE =
+  process.env.TRAINAI_API_BASE || "https://trainai-tools.onrender.com";
+
+app.use(cors());
 app.use(express.json());
 
-// Health check
+// Simple health check
 app.get("/", (_req, res) => {
-  res.send("trainai-mcp-server up");
+  res.type("text/plain").send("trainai-mcp-server up");
 });
 
-// MCP manifest (what Agent Builder reads)
+// MCP manifest
 app.get("/.well-known/mcp.json", (_req, res) => {
-  res.json({
+  res.type("application/json").send({
     schema: "1.0",
     name: "TrainaiMCP",
     version: "0.1.0",
     transport: {
+      // Agent Builder expects this for Hosted MCP
       type: "streamable_http",
+      // Relative path from this same origin
       url: "/mcp",
     },
   });
 });
 
-// MCP endpoint (Streamable HTTP)
-// Agent Builder will POST here with MCP JSON-RPC
+// Helper: write one MCP message as a streamable_http event
+function writeEvent(res, payload) {
+  // Minimal framing that Agent Builder understands
+  res.write(`event: message\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+// In-memory tool definitions (what Agent Builder should see)
+const tools = [
+  {
+    name: "crawl",
+    title: "Crawl application",
+    description:
+      "Crawl a target web application and return routes, selectors, and snippets.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", format: "uri" },
+        depth: { type: "integer", minimum: 0, maximum: 3 },
+      },
+      required: ["url"],
+      additionalProperties: false,
+      $schema: "http://json-schema.org/draft-07/schema#",
+    },
+  },
+  {
+    name: "doc_search",
+    title: "Search documentation",
+    description:
+      "Search Train.ai indexed docs/DOM for information relevant to a task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+      $schema: "http://json-schema.org/draft-07/schema#",
+    },
+  },
+  {
+    name: "evaluate",
+    title: "Evaluate selector/route",
+    description:
+      "Validate that a selector works for a given route in the learned flow.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: { type: "string" },
+        route: { type: "string" },
+      },
+      required: ["selector", "route"],
+      additionalProperties: false,
+      $schema: "http://json-schema.org/draft-07/schema#",
+    },
+  },
+  {
+    name: "persist_flow",
+    title: "Persist discovered flow",
+    description:
+      "Store a structured Train.ai flow JSON so it can be replayed or inspected.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        flow: {}, // allow any valid flow object
+      },
+      additionalProperties: false,
+      $schema: "http://json-schema.org/draft-07/schema#",
+    },
+  },
+];
+
+// MCP endpoint (streamable_http)
 app.post("/mcp", async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({
-    enableJsonResponse: true,
-  });
+  const { id = null, method, params } = req.body || {};
 
-  res.on("close", () => {
-    transport.close().catch(() => {});
-  });
+  // Always respond as a stream
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
 
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+  try {
+    if (method === "tools/list") {
+      writeEvent(res, {
+        jsonrpc: "2.0",
+        id,
+        result: { tools },
+      });
+      return res.end();
+    }
+
+    // (Optional) Implement tools/call so Agent Builder can actually use them.
+    // For now, we just say "method not implemented" so tools at least load.
+    writeEvent(res, {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: -32601,
+        message: `Method not implemented: ${method}`,
+      },
+    });
+    return res.end();
+  } catch (err) {
+    console.error("MCP handler error:", err);
+    writeEvent(res, {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: -32603,
+        message: "Internal MCP server error",
+      },
+    });
+    return res.end();
+  }
 });
 
 // Start server
-const port = parseInt(process.env.PORT || "3000", 10);
-
-app
-  .listen(port, () => {
-    console.log(`Train.ai MCP server running on http://localhost:${port}`);
-  })
-  .on("error", (err) => {
-    console.error("Server error:", err);
-    process.exit(1);
-  });
+app.listen(PORT, () => {
+  console.log(
+    `trainai-mcp-server listening on :${PORT} (MCP at /mcp, manifest at /.well-known/mcp.json)`
+  );
+});
 
