@@ -26,7 +26,7 @@ app.get("/.well-known/mcp.json", (_req, res) => {
     version: "0.1.0",
     transport: {
       // Agent Builder expects this for Hosted MCP
-      type: "streamable_http",
+      type: "sse",
       // Relative path from this same origin
       url: "/mcp",
     },
