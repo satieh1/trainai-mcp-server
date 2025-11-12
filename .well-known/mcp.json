@@ -3,8 +3,7 @@
   "name": "TrainaiMCP",
   "version": "0.1.0",
   "transport": {
-    "type": "sse",
+    "type": "streamable_http",
     "url": "/mcp"
   }
 }
-
